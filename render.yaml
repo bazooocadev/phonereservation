@@ -1,0 +1,32 @@
+services:
+  - type: web
+    name: redial-system
+    runtime: docker
+    plan: starter
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: redial-db
+          property: connectionString
+      - key: SECRET_KEY
+        generateValue: true
+      - key: TWILIO_ACCOUNT_SID
+        sync: false
+      - key: TWILIO_AUTH_TOKEN
+        sync: false
+      - key: TELNYX_API_KEY
+        sync: false
+      - key: TELNYX_CONNECTION_ID
+        sync: false
+      - key: REDIAL_INTERVAL_SEC
+        value: "1"
+      - key: MAX_CONCURRENT_CALLS
+        value: "30"
+      - key: PYTHON_ENV
+        value: production
+
+databases:
+  - name: redial-db
+    plan: basic
+    databaseName: redialdb
+    user: redial

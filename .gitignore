@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Env
+.env
+.env.*
+!.env.example
+
+# DB
+*.db
+*.sqlite3
+
+# Docker
+.dockerignore
+
+# Alembic
+alembic/versions/__pycache__/
+
+# Logs
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db

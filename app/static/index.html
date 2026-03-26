@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Redial System — 管理画面</title>
+  <meta name="description" content="リダイアルシステム管理画面 — 発信先・回線・担当者の管理とリアルタイムモニタリング">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+  <!-- Sidebar（PC） -->
+  <nav class="sidebar">
+    <div class="sidebar-brand">
+      <div class="brand-icon">📞</div>
+      <span class="brand-name">Redial<span class="brand-accent">Sys</span></span>
+    </div>
+    <ul class="nav-list">
+      <li class="nav-item active" data-page="dashboard" onclick="showPage('dashboard')">
+        <span class="nav-icon">🏠</span>
+        <span>ダッシュボード</span>
+      </li>
+      <li class="nav-item" data-page="destinations" onclick="showPage('destinations')">
+        <span class="nav-icon">📱</span>
+        <span>発信先管理</span>
+      </li>
+      <li class="nav-item" data-page="lines" onclick="showPage('lines')">
+        <span class="nav-icon">📡</span>
+        <span>回線管理</span>
+      </li>
+      <li class="nav-item" data-page="operators" onclick="showPage('operators')">
+        <span class="nav-icon">👤</span>
+        <span>担当者管理</span>
+      </li>
+      <li class="nav-item" data-page="logs" onclick="showPage('logs')">
+        <span class="nav-icon">📋</span>
+        <span>通話ログ</span>
+      </li>
+    </ul>
+    <div class="sidebar-footer">
+      <div class="ws-status" id="wsStatus">
+        <span class="ws-dot disconnected"></span>
+        <span class="ws-label">接続中...</span>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Bottom Nav（スマホ） -->
+  <nav class="bottom-nav">
+    <ul class="bottom-nav-list">
+      <li class="bottom-nav-item active" data-page="dashboard" onclick="showPage('dashboard')">
+        <span class="nav-icon">🏠</span>
+        <span>ホーム</span>
+      </li>
+      <li class="bottom-nav-item" data-page="destinations" onclick="showPage('destinations')">
+        <span class="nav-icon">📱</span>
+        <span>発信先</span>
+      </li>
+      <li class="bottom-nav-item" data-page="lines" onclick="showPage('lines')">
+        <span class="nav-icon">📡</span>
+        <span>回線</span>
+      </li>
+      <li class="bottom-nav-item" data-page="operators" onclick="showPage('operators')">
+        <span class="nav-icon">👤</span>
+        <span>担当者</span>
+      </li>
+      <li class="bottom-nav-item" data-page="logs" onclick="showPage('logs')">
+        <span class="nav-icon">📋</span>
+        <span>ログ</span>
+      </li>
+    </ul>
+  </nav>
+
+  <!-- Main Content -->
+  <main class="main">
+    <!-- Dashboard Page -->
+    <div id="page-dashboard" class="page active">
+      <div class="page-header">
+        <h1>ダッシュボード</h1>
+      </div>
+
+      <div class="engine-btn-wrap">
+        <button id="btnEngine" class="btn-engine" onclick="toggleEngine()">
+          <span id="btnEngineIcon">▶</span>
+          <span id="btnEngineLabel">発信開始</span>
+        </button>
+      </div>
+
+      <!-- Stats Cards -->
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-icon">📞</div>
+          <div class="stat-body">
+            <div class="stat-value" id="statActiveCalls">0</div>
+            <div class="stat-label">発信中</div>
+          </div>
+          <div class="stat-pulse" id="activePulse"></div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon">✅</div>
+          <div class="stat-body">
+            <div class="stat-value" id="statConnected">0</div>
+            <div class="stat-label">本日接続数</div>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon">📊</div>
+          <div class="stat-body">
+            <div class="stat-value" id="statTotal">0</div>
+            <div class="stat-label">本日発信数</div>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon">⏱️</div>
+          <div class="stat-body">
+            <div class="stat-value" id="statDuration">0<small>分</small></div>
+            <div class="stat-label">本日累計通話時間</div>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon">💰</div>
+          <div class="stat-body">
+            <div class="stat-value" id="statCost">$0.00</div>
+            <div class="stat-label">本日推定コスト</div>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon">📈</div>
+          <div class="stat-body">
+            <div class="stat-value" id="statRate">0<small>%</small></div>
+            <div class="stat-label">接続率</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Carrier Capacity -->
+      <div class="panel" style="margin-bottom:24px">
+        <div class="panel-header">
+          <h2>キャリア回線状況</h2>
+          <button class="btn btn-ghost btn-sm" onclick="refreshCarrierCapacity()">更新</button>
+        </div>
+        <div id="carrierCapacity" class="panel-body" style="display:flex;gap:24px;flex-wrap:wrap;padding:16px 20px"></div>
+      </div>
+
+      <!-- Destinations & Operators Status -->
+      <div class="status-grid">
+        <div class="panel">
+          <div class="panel-header">
+            <h2>発信先ステータス</h2>
+          </div>
+          <div id="destStatus" class="panel-body"></div>
+        </div>
+        <div class="panel">
+          <div class="panel-header">
+            <h2>担当者ステータス</h2>
+          </div>
+          <div id="opStatus" class="panel-body"></div>
+        </div>
+      </div>
+
+      <!-- Live Log Feed -->
+      <div class="panel">
+        <div class="panel-header">
+          <h2>ライブイベント</h2>
+          <button class="btn btn-ghost btn-sm" onclick="clearLiveFeed()">クリア</button>
+        </div>
+        <div id="liveFeed" class="live-feed"></div>
+      </div>
+    </div>
+
+    <!-- Destinations Page -->
+    <div id="page-destinations" class="page">
+      <div class="page-header">
+        <h1>発信先管理</h1>
+        <button class="btn btn-primary" onclick="openDestModal()">＋ 追加</button>
+      </div>
+      <div class="panel">
+        <div class="table-wrap">
+          <table class="table" id="destTable">
+            <thead>
+              <tr><th>ID</th><th>ラベル</th><th>電話番号</th><th>割当回線数</th><th>状態</th><th>操作</th></tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Lines Page -->
+    <div id="page-lines" class="page">
+      <div class="page-header">
+        <h1>回線管理</h1>
+        <button class="btn btn-primary" onclick="openLineModal()">＋ 追加</button>
+      </div>
+      <div class="panel">
+        <div class="table-wrap">
+          <table class="table" id="lineTable">
+            <thead>
+              <tr><th>ID</th><th>キャリア</th><th>発信番号</th><th>宛先</th><th>優先度</th><th>状態</th><th>操作</th></tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Operators Page -->
+    <div id="page-operators" class="page">
+      <div class="page-header">
+        <h1>担当者管理</h1>
+        <button class="btn btn-primary" onclick="openOpModal()">＋ 追加</button>
+      </div>
+      <div class="panel">
+        <div class="table-wrap">
+          <table class="table" id="opTable">
+            <thead>
+              <tr><th>ID</th><th>名前</th><th>電話番号</th><th>優先度</th><th>空き状態</th><th>操作</th></tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Logs Page -->
+    <div id="page-logs" class="page">
+      <div class="page-header">
+        <h1>通話ログ</h1>
+        <div class="log-filters">
+          <select id="logResultFilter" onchange="loadLogs()">
+            <option value="">全て</option>
+            <option value="connected">接続成功</option>
+            <option value="busy">話中</option>
+            <option value="congested">混雑</option>
+            <option value="failed">失敗</option>
+            <option value="no-answer">応答なし</option>
+          </select>
+          <input type="date" id="logDateFrom" onchange="loadLogs()">
+          <span>〜</span>
+          <input type="date" id="logDateTo" onchange="loadLogs()">
+          <button class="btn btn-ghost btn-sm" onclick="loadLogs()">🔍 検索</button>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="table-wrap">
+          <table class="table" id="logTable">
+            <thead>
+              <tr><th>ID</th><th>発信時刻</th><th>宛先</th><th>キャリア</th><th>結果</th><th>通話時間</th><th>コスト</th><th>転送先</th></tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- ─── Modals ─────────────────────────────────────────── -->
+  <!-- Destination Modal -->
+  <div id="destModal" class="modal-overlay" onclick="closeModal('destModal')">
+    <div class="modal" onclick="event.stopPropagation()">
+      <div class="modal-header">
+        <h3 id="destModalTitle">発信先追加</h3>
+        <button class="modal-close" onclick="closeModal('destModal')">✕</button>
+      </div>
+      <form id="destForm" onsubmit="saveDest(event)">
+        <input type="hidden" id="destId">
+        <div class="form-group">
+          <label>ラベル（A / B など）</label>
+          <input type="text" id="destName" required placeholder="例: A">
+        </div>
+        <div class="form-group">
+          <label>電話番号</label>
+          <input type="text" id="destPhone" required placeholder="例: +81312345678">
+        </div>
+        <div class="form-group">
+          <label>割当回線数</label>
+          <input type="number" id="destLines" value="5" min="1" max="30">
+        </div>
+        <div class="form-group">
+          <label class="toggle-label">
+            <span>有効</span>
+            <input type="checkbox" id="destActive" checked>
+            <span class="toggle"></span>
+          </label>
+        </div>
+        <div class="form-group">
+          <label class="toggle-label">
+            <span>呼び出し音段階で即時転送（Twilioコンファレンス）</span>
+            <input type="checkbox" id="destTransferOnRinging">
+            <span class="toggle"></span>
+          </label>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-ghost" onclick="closeModal('destModal')">キャンセル</button>
+          <button type="submit" class="btn btn-primary">保存</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Line Modal -->
+  <div id="lineModal" class="modal-overlay" onclick="closeModal('lineModal')">
+    <div class="modal" onclick="event.stopPropagation()">
+      <div class="modal-header">
+        <h3 id="lineModalTitle">回線追加</h3>
+        <button class="modal-close" onclick="closeModal('lineModal')">✕</button>
+      </div>
+      <form id="lineForm" onsubmit="saveLine(event)">
+        <input type="hidden" id="lineId">
+        <div class="form-group">
+          <label>キャリア</label>
+          <select id="lineCarrier" required>
+            <option value="twilio">Twilio</option>
+            <option value="telnyx">Telnyx</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>発信番号（E.164形式）</label>
+          <input type="text" id="lineFrom" required placeholder="例: +815012345678">
+        </div>
+        <div class="form-group">
+          <label>割当宛先</label>
+          <select id="lineDest">
+            <option value="">未割当</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>優先度（小さいほど高優先）</label>
+          <input type="number" id="linePriority" value="1" min="1" max="99">
+        </div>
+        <div class="form-group">
+          <label class="toggle-label">
+            <span>有効</span>
+            <input type="checkbox" id="lineActive" checked>
+            <span class="toggle"></span>
+          </label>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-ghost" onclick="closeModal('lineModal')">キャンセル</button>
+          <button type="submit" class="btn btn-primary">保存</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Operator Modal -->
+  <div id="opModal" class="modal-overlay" onclick="closeModal('opModal')">
+    <div class="modal" onclick="event.stopPropagation()">
+      <div class="modal-header">
+        <h3 id="opModalTitle">担当者追加</h3>
+        <button class="modal-close" onclick="closeModal('opModal')">✕</button>
+      </div>
+      <form id="opForm" onsubmit="saveOp(event)">
+        <input type="hidden" id="opId">
+        <div class="form-group">
+          <label>名前</label>
+          <input type="text" id="opName" required placeholder="例: スマホ①">
+        </div>
+        <div class="form-group">
+          <label>電話番号（E.164形式）</label>
+          <input type="text" id="opPhone" required placeholder="例: +819012345678">
+        </div>
+        <div class="form-group">
+          <label>優先度（小さいほど高優先）</label>
+          <input type="number" id="opPriority" value="1" min="1" max="99">
+        </div>
+        <div class="form-group">
+          <label class="toggle-label">
+            <span>有効</span>
+            <input type="checkbox" id="opActive" checked>
+            <span class="toggle"></span>
+          </label>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-ghost" onclick="closeModal('opModal')">キャンセル</button>
+          <button type="submit" class="btn btn-primary">保存</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="/static/js/app.js"></script>
+</body>
+</html>
