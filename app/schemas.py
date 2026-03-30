@@ -112,6 +112,17 @@ class CallLogOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+# ─── SystemSetting ─────────────────────────────────────────
+class SystemSettingOut(BaseModel):
+    dial_interval_sec: float
+
+    model_config = {"from_attributes": True}
+
+
+class SystemSettingUpdate(BaseModel):
+    dial_interval_sec: float
+
+
 # ─── Dashboard ─────────────────────────────────────────────
 class DashboardStats(BaseModel):
     total_calls_today: int

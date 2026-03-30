@@ -159,6 +159,25 @@
         </div>
       </div>
 
+      <!-- System Settings -->
+      <div class="panel" style="margin-bottom:24px">
+        <div class="panel-header">
+          <h2>発信設定</h2>
+        </div>
+        <div class="panel-body" style="padding:16px 20px">
+          <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+            <label style="font-size:14px;color:var(--text-muted);white-space:nowrap">回線間ダイアル間隔</label>
+            <div style="display:flex;align-items:center;gap:8px">
+              <input type="number" id="dialIntervalInput" min="1" max="60" step="0.5"
+                style="width:80px;padding:6px 10px;border-radius:var(--radius);border:1px solid var(--border);background:var(--bg-input);color:var(--text);font-size:14px;text-align:center">
+              <span style="font-size:14px;color:var(--text-muted)">秒</span>
+              <button class="btn btn-primary btn-sm" onclick="saveDialInterval()">保存</button>
+              <span id="dialIntervalMsg" style="font-size:13px;color:var(--success);display:none">保存しました</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- Live Log Feed -->
       <div class="panel">
         <div class="panel-header">

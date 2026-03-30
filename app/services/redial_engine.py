@@ -59,10 +59,19 @@ class ActiveCall:
 class RedialEngine:
     def __init__(self):
         self.is_running = False
+        self.dial_interval_sec: float = settings.dial_interval_sec
         self._tasks: list[asyncio.Task] = []
         self._active_calls: Dict[str, ActiveCall] = {}
         self._operator_calls: Dict[int, str] = {}
         self._batches: Dict[str, CallBatch] = {}
+
+    async def _sync_settings(self):
+        """DBからシステム設定を読み込みエンジンに反映する"""
+        from app.models.system_setting import SystemSetting
+        async with AsyncSessionLocal() as db:
+            setting = await db.get(SystemSetting, 1)
+            if setting:
+                self.dial_interval_sec = setting.dial_interval_sec
 
     @property
     def active_call_count(self) -> int:
@@ -73,6 +82,7 @@ class RedialEngine:
             logger.info("Engine already running")
             return
         self.is_running = True
+        await self._sync_settings()
         logger.info("Redial engine starting...")
         async with AsyncSessionLocal() as db:
             dests = (await db.execute(
@@ -160,7 +170,7 @@ class RedialEngine:
                         try:
                             await asyncio.wait_for(
                                 batch.done_event.wait(),
-                                timeout=settings.dial_interval_sec,
+                                timeout=self.dial_interval_sec,
                             )
                         except asyncio.TimeoutError:
                             pass

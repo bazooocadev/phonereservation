@@ -13,6 +13,7 @@ window.addEventListener('DOMContentLoaded', () => {
   connectWS();
   refreshDashboard();
   refreshCarrierCapacity();
+  loadDialInterval();
   setInterval(refreshDashboard, 10000);
   setInterval(refreshCarrierCapacity, 30000);
 });
@@ -218,6 +219,25 @@ async function refreshCarrierCapacity() {
   if (data.twilio)  cards.push(buildCarrierCard('TWILIO', data.twilio));
   if (data.telnyx)  cards.push(buildCarrierCard('TELNYX', data.telnyx));
   el.innerHTML = cards.join('');
+}
+
+// ─── System Settings ──────────────────────────────────────
+async function loadDialInterval() {
+  const data = await api('GET', '/api/dashboard/settings');
+  if (data) {
+    document.getElementById('dialIntervalInput').value = data.dial_interval_sec;
+  }
+}
+
+async function saveDialInterval() {
+  const val = parseFloat(document.getElementById('dialIntervalInput').value);
+  if (isNaN(val) || val < 1) return;
+  const data = await api('PUT', '/api/dashboard/settings', { dial_interval_sec: val });
+  if (data) {
+    const msg = document.getElementById('dialIntervalMsg');
+    msg.style.display = 'inline';
+    setTimeout(() => { msg.style.display = 'none'; }, 2000);
+  }
 }
 
 async function toggleEngine() {
