@@ -154,7 +154,7 @@ async def get_carrier_capacity(db: AsyncSession = Depends(get_db)):
         active_rows = await db.execute(
             select(CallLog.from_number).where(
                 CallLog.carrier == "telnyx",
-                CallLog.result == "calling",
+                CallLog.result.in_(["calling", "connected"]),
             )
         )
         active_numbers = {r[0] for r in active_rows.all() if r[0]}

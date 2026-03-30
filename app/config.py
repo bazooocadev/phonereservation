@@ -21,6 +21,7 @@ class Settings(BaseSettings):
 
     # Redial
     redial_interval_sec: float = 1.0
+    dial_interval_sec: float = 3.0   # 回線間のダイアル間隔（秒）
     max_concurrent_calls: int = 30
     twilio_cost_per_min: float = 0.085  # USD/分（日本向けモバイル概算）
 
