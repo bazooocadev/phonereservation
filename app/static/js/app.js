@@ -225,6 +225,7 @@ async function refreshCarrierCapacity() {
 async function loadDialInterval() {
   const data = await api('GET', '/api/dashboard/settings');
   if (data) {
+    document.getElementById('dialIntervalCurrent').textContent = data.dial_interval_sec;
     document.getElementById('dialIntervalInput').value = data.dial_interval_sec;
   }
 }
@@ -234,6 +235,7 @@ async function saveDialInterval() {
   if (isNaN(val) || val < 1) return;
   const data = await api('PUT', '/api/dashboard/settings', { dial_interval_sec: val });
   if (data) {
+    document.getElementById('dialIntervalCurrent').textContent = data.dial_interval_sec;
     const msg = document.getElementById('dialIntervalMsg');
     msg.style.display = 'inline';
     setTimeout(() => { msg.style.display = 'none'; }, 2000);
