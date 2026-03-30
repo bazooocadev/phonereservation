@@ -28,7 +28,7 @@ settings = get_settings()
 
 
 class CallBatch:
-    """同時並列発信バッチ（1サイクル分）"""
+    """順次発信バッチ（1サイクル分）"""
     def __init__(self, batch_id: str, dest_id: int):
         self.batch_id = batch_id
         self.dest_id = dest_id
@@ -37,6 +37,7 @@ class CallBatch:
         self.connected_call_sid: Optional[str] = None
         self.done_event = asyncio.Event()       # 接続確定 or 全失敗
         self.call_ended_event = asyncio.Event() # 接続した通話が終了
+        self.all_dialed = False                 # 全回線のダイアル試行が完了したか
 
 
 class ActiveCall:
@@ -58,10 +59,19 @@ class ActiveCall:
 class RedialEngine:
     def __init__(self):
         self.is_running = False
+        self.dial_interval_sec: float = settings.dial_interval_sec
         self._tasks: list[asyncio.Task] = []
         self._active_calls: Dict[str, ActiveCall] = {}
         self._operator_calls: Dict[int, str] = {}
         self._batches: Dict[str, CallBatch] = {}
+
+    async def _sync_settings(self):
+        """DBからシステム設定を読み込みエンジンに反映する"""
+        from app.models.system_setting import SystemSetting
+        async with AsyncSessionLocal() as db:
+            setting = await db.get(SystemSetting, 1)
+            if setting:
+                self.dial_interval_sec = setting.dial_interval_sec
 
     @property
     def active_call_count(self) -> int:
@@ -72,6 +82,7 @@ class RedialEngine:
             logger.info("Engine already running")
             return
         self.is_running = True
+        await self._sync_settings()
         logger.info("Redial engine starting...")
         async with AsyncSessionLocal() as db:
             dests = (await db.execute(
@@ -97,6 +108,15 @@ class RedialEngine:
             asyncio.create_task(self._do_hangup(call_sid, ac.carrier))
         self._active_calls.clear()
         self._batches.clear()
+
+        # 担当者を空き状態に戻す
+        for op_id in list(self._operator_calls.keys()):
+            async with AsyncSessionLocal() as db:
+                op = await db.get(Operator, op_id)
+                if op:
+                    op.is_available = True
+                    await db.commit()
+        self._operator_calls.clear()
 
         await websocket_manager.broadcast({"type": "engine", "running": False})
         logger.info("Redial engine stopped")
@@ -135,19 +155,35 @@ class RedialEngine:
                     await asyncio.sleep(5)
                     continue
 
-                # バッチ作成 → 全回線を同時発信
+                # バッチ作成 → 1回線ずつ順次発信
                 batch_id = uuid.uuid4().hex[:12]
                 batch = CallBatch(batch_id, dest_id)
                 self._batches[batch_id] = batch
 
-                for line in lines:
+                # 1回線ずつ順番にダイアル（dial_interval_sec 間隔）
+                for i, line in enumerate(lines):
+                    if not self.is_running or batch.connected or batch.done_event.is_set():
+                        break
                     asyncio.create_task(self._make_single_call(dest, line, batch_id))
+                    # 最後の回線以外は interval 秒待機（その間に接続すればループを抜ける）
+                    if i < len(lines) - 1:
+                        try:
+                            await asyncio.wait_for(
+                                batch.done_event.wait(),
+                                timeout=self.dial_interval_sec,
+                            )
+                        except asyncio.TimeoutError:
+                            pass
 
-                # バッチ完了（接続 or 全失敗）を待機（最大60秒）
-                try:
-                    await asyncio.wait_for(batch.done_event.wait(), timeout=60)
-                except asyncio.TimeoutError:
-                    logger.warning(f"Batch {batch_id} timed out for dest {dest_id}")
+                # 全回線のダイアル試行完了を記録し、残りのバッチ完了を待機
+                batch.all_dialed = True
+                await self._check_batch_all_failed(batch.batch_id)
+
+                if not batch.done_event.is_set():
+                    try:
+                        await asyncio.wait_for(batch.done_event.wait(), timeout=60)
+                    except asyncio.TimeoutError:
+                        logger.warning(f"Batch {batch_id} timed out for dest {dest_id}")
 
                 if batch.connected:
                     # 接続した通話が終了するまで待機してから次のサイクルへ
@@ -194,6 +230,16 @@ class RedialEngine:
             log_id = log.id
 
         try:
+            # エンジン停止済みなら発信しない（Twilio API 呼び出し前にチェック）
+            if not self.is_running:
+                async with AsyncSessionLocal() as db:
+                    log_upd = await db.get(CallLog, log_id)
+                    if log_upd:
+                        log_upd.result = "cancelled"
+                        log_upd.ended_at = datetime.now(timezone.utc)
+                        await db.commit()
+                return
+
             loop = asyncio.get_event_loop()
             if line.carrier == "twilio":
                 from app.services.carrier import twilio_client
@@ -218,6 +264,11 @@ class RedialEngine:
                 raise RuntimeError(f"Telnyx is currently disabled. carrier={line.carrier}")
 
             if call_sid:
+                # エンジン停止済みなら即ハングアップして終了
+                if not self.is_running:
+                    asyncio.create_task(self._do_hangup(call_sid, line.carrier))
+                    return
+
                 # _active_calls を先に登録（ringing コールバックとの競合を防ぐ）
                 self._active_calls[call_sid] = ActiveCall(
                     call_sid, line.carrier, dest.id, log_id,
@@ -288,8 +339,9 @@ class RedialEngine:
         batch = self._batches.get(batch_id)
         if not batch or batch.connected or batch.done_event.is_set():
             return
-        # call_sids が空（全通話終了）になったらリダイアルへ
-        if not batch.call_sids:
+        # 全回線のダイアル試行完了 かつ call_sids が空（全通話終了）になったらリダイアルへ
+        # all_dialed が False の間は、まだ未ダイアルの回線が残っているので待機
+        if batch.all_dialed and not batch.call_sids:
             batch.done_event.set()
 
     async def on_call_ringing(self, call_sid: str):
@@ -311,6 +363,7 @@ class RedialEngine:
                 .where(Operator.is_available == True)
                 .order_by(Operator.priority)
                 .limit(1)
+                .with_for_update(skip_locked=True)
             )
             operator = result.scalar_one_or_none()
 
@@ -392,6 +445,7 @@ class RedialEngine:
                 .where(Operator.is_available == True)
                 .order_by(Operator.priority)
                 .limit(1)
+                .with_for_update(skip_locked=True)
             )
             operator = result.scalar_one_or_none()
 

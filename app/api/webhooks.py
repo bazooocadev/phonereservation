@@ -97,8 +97,14 @@ async def twilio_status_callback(request: Request, db: AsyncSession = Depends(ge
 
     elif call_status == "completed":
         # 通話完了（転送後のハングアップ等）
+        # すでに congested/busy/failed 等で処理済みの場合は上書きしない
         result_label = "connected"
         duration_sec = int(duration) if duration else 0
+        result = await db.execute(select(CallLog).where(CallLog.call_sid == call_sid))
+        existing_log = result.scalar_one_or_none()
+        terminal_results = {"congested", "busy", "failed", "no-answer"}
+        if existing_log and existing_log.result in terminal_results:
+            return Response(content="", media_type="text/xml")
         await redial_engine.on_call_ended(call_sid, result_label, duration_sec)
 
     else:

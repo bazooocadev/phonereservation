@@ -5,7 +5,8 @@ from app.database import get_db
 from app.models.call_log import CallLog
 from app.models.destination import Destination
 from app.models.operator import Operator
-from app.schemas import DashboardStats
+from app.models.system_setting import SystemSetting
+from app.schemas import DashboardStats, SystemSettingOut, SystemSettingUpdate
 from datetime import datetime, timezone
 import asyncio
 import logging
@@ -154,7 +155,7 @@ async def get_carrier_capacity(db: AsyncSession = Depends(get_db)):
         active_rows = await db.execute(
             select(CallLog.from_number).where(
                 CallLog.carrier == "telnyx",
-                CallLog.result == "calling",
+                CallLog.result.in_(["calling", "connected"]),
             )
         )
         active_numbers = {r[0] for r in active_rows.all() if r[0]}
@@ -187,3 +188,29 @@ async def stop_redial():
     from app.services.redial_engine import engine as redial_engine
     await redial_engine.stop()
     return {"status": "stopped"}
+
+
+@router.get("/settings", response_model=SystemSettingOut)
+async def get_settings(db: AsyncSession = Depends(get_db)):
+    setting = await db.get(SystemSetting, 1)
+    if not setting:
+        setting = SystemSetting(id=1)
+        db.add(setting)
+        await db.commit()
+        await db.refresh(setting)
+    return setting
+
+
+@router.put("/settings", response_model=SystemSettingOut)
+async def update_settings(data: SystemSettingUpdate, db: AsyncSession = Depends(get_db)):
+    from app.services.redial_engine import engine as redial_engine
+    setting = await db.get(SystemSetting, 1)
+    if not setting:
+        setting = SystemSetting(id=1)
+        db.add(setting)
+    setting.dial_interval_sec = data.dial_interval_sec
+    await db.commit()
+    await db.refresh(setting)
+    # 実行中のエンジンにも即時反映
+    redial_engine.dial_interval_sec = setting.dial_interval_sec
+    return setting
