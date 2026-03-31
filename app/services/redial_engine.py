@@ -405,11 +405,19 @@ class RedialEngine:
             await db.commit()
 
         loop = asyncio.get_event_loop()
+        # run_in_executor の前に登録しておく（webhook との競合を防ぐ）
+        self._operator_calls[operator.id] = call_sid
         try:
             from app.services.carrier import twilio_client
             from_number = ac.from_number
             if not from_number:
                 logger.error("from_number not found for conference call")
+                self._operator_calls.pop(operator.id, None)
+                async with AsyncSessionLocal() as db:
+                    op = await db.get(Operator, operator.id)
+                    if op:
+                        op.is_available = True
+                        await db.commit()
                 return
 
             op_call_sid = await loop.run_in_executor(
@@ -427,7 +435,6 @@ class RedialEngine:
                     log_upd.operator_call_sid = op_call_sid
                     await db.commit()
 
-            self._operator_calls[operator.id] = call_sid
             await websocket_manager.broadcast({
                 "type": "call_transferred",
                 "call_sid": call_sid,
@@ -437,6 +444,7 @@ class RedialEngine:
 
         except Exception as e:
             logger.error(f"Conference operator call failed: {e}")
+            self._operator_calls.pop(operator.id, None)
             async with AsyncSessionLocal() as db:
                 op = await db.get(Operator, operator.id)
                 if op:
@@ -491,6 +499,8 @@ class RedialEngine:
                 await db.commit()
 
         loop = asyncio.get_event_loop()
+        # run_in_executor の前に登録しておく（webhook との競合を防ぐ）
+        self._operator_calls[operator.id] = call_sid
         try:
             if ac.carrier == "twilio":
                 from app.services.carrier import twilio_client
@@ -503,15 +513,19 @@ class RedialEngine:
                 )
             else:
                 raise RuntimeError(f"Telnyx is currently disabled. carrier={ac.carrier}")
+            await websocket_manager.broadcast({
+                "type": "call_transferred",
+                "call_sid": call_sid,
+                "operator_name": operator.name,
+            })
         except Exception as e:
             logger.error(f"Transfer failed: {e}")
-
-        self._operator_calls[operator.id] = call_sid
-        await websocket_manager.broadcast({
-            "type": "call_transferred",
-            "call_sid": call_sid,
-            "operator_name": operator.name,
-        })
+            self._operator_calls.pop(operator.id, None)
+            async with AsyncSessionLocal() as db:
+                op = await db.get(Operator, operator.id)
+                if op:
+                    op.is_available = True
+                    await db.commit()
 
     async def on_call_ended(self, call_sid: str, result: str, duration_sec: int = 0):
         """通話終了時のクリーンアップ"""
