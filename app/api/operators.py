@@ -1,8 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, update
 from app.database import get_db
 from app.models.operator import Operator
+from app.models.call_log import CallLog
 from app.schemas import OperatorCreate, OperatorUpdate, OperatorOut
 from typing import List
 
@@ -29,7 +30,7 @@ async def update_operator(op_id: int, data: OperatorUpdate, db: AsyncSession = D
     op = await db.get(Operator, op_id)
     if not op:
         raise HTTPException(status_code=404, detail="Not found")
-    for key, value in data.model_dump(exclude_none=True).items():
+    for key, value in data.model_dump(exclude_unset=True).items():
         setattr(op, key, value)
     await db.commit()
     await db.refresh(op)
@@ -41,6 +42,8 @@ async def delete_operator(op_id: int, db: AsyncSession = Depends(get_db)):
     op = await db.get(Operator, op_id)
     if not op:
         raise HTTPException(status_code=404, detail="Not found")
+    # 外部キー参照をNULLに解除してから削除
+    await db.execute(update(CallLog).where(CallLog.operator_id == op_id).values(operator_id=None))
     await db.delete(op)
     await db.commit()
 

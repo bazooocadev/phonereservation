@@ -607,12 +607,31 @@ async function api(method, path, body) {
     if (res.status === 204) return null;
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
+      const detail = err.detail || `HTTP ${res.status}`;
       console.error(`API error ${res.status}:`, err);
+      showToast(`エラー: ${detail}`, 'danger');
       return null;
     }
     return await res.json();
   } catch (e) {
     console.error('API fetch error:', e);
+    showToast('通信エラーが発生しました', 'danger');
     return null;
   }
+}
+
+function showToast(message, type = 'info') {
+  let container = document.getElementById('toastContainer');
+  if (!container) {
+    container = document.createElement('div');
+    container.id = 'toastContainer';
+    container.style.cssText = 'position:fixed;bottom:24px;right:24px;z-index:9999;display:flex;flex-direction:column;gap:8px;';
+    document.body.appendChild(container);
+  }
+  const toast = document.createElement('div');
+  const bg = type === 'danger' ? 'var(--danger)' : type === 'success' ? 'var(--success)' : 'var(--primary)';
+  toast.style.cssText = `background:${bg};color:#fff;padding:12px 20px;border-radius:var(--radius);font-size:14px;font-weight:500;box-shadow:0 4px 16px rgba(0,0,0,0.3);animation:fadeIn .2s ease;max-width:320px;`;
+  toast.textContent = message;
+  container.appendChild(toast);
+  setTimeout(() => toast.remove(), 4000);
 }

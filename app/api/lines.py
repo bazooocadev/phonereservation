@@ -1,8 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, update
 from app.database import get_db
 from app.models.carrier_line import CarrierLine
+from app.models.call_log import CallLog
 from app.schemas import CarrierLineCreate, CarrierLineUpdate, CarrierLineOut
 from typing import List
 
@@ -31,7 +32,7 @@ async def update_line(line_id: int, data: CarrierLineUpdate, db: AsyncSession = 
     line = await db.get(CarrierLine, line_id)
     if not line:
         raise HTTPException(status_code=404, detail="Not found")
-    for key, value in data.model_dump(exclude_none=True).items():
+    for key, value in data.model_dump(exclude_unset=True).items():
         setattr(line, key, value)
     await db.commit()
     await db.refresh(line)
@@ -43,5 +44,7 @@ async def delete_line(line_id: int, db: AsyncSession = Depends(get_db)):
     line = await db.get(CarrierLine, line_id)
     if not line:
         raise HTTPException(status_code=404, detail="Not found")
+    # 外部キー参照をNULLに解除してから削除
+    await db.execute(update(CallLog).where(CallLog.carrier_line_id == line_id).values(carrier_line_id=None))
     await db.delete(line)
     await db.commit()

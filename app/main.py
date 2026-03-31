@@ -1,5 +1,5 @@
 """FastAPI メインアプリケーション"""
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, Response
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, FileResponse
 from contextlib import asynccontextmanager
@@ -41,31 +41,6 @@ app.include_router(call_logs.router)
 app.include_router(dashboard.router)
 app.include_router(webhooks.router)
 
-
-# ─── TwiML エンドポイント ──────────────────────────────────
-@app.post("/api/webhooks/twilio/twiml")
-async def twilio_twiml(request: Request):
-    """発信直後に返すTwiML（音声収集で混雑アナウンスを検知）"""
-    from app.services.carrier.twilio_client import build_gather_twiml
-    twiml = build_gather_twiml(settings.webhook_base_url)
-    return Response(content=twiml, media_type="text/xml")
-
-
-@app.post("/api/webhooks/twilio/twiml/conference")
-async def twilio_conference_twiml(request: Request, room: str, wait_for_operator: str = "true"):
-    """コンファレンス参加用TwiML"""
-    from app.services.carrier.twilio_client import build_conference_twiml
-    wait = wait_for_operator.lower() == "true"
-    twiml = build_conference_twiml(room, wait)
-    return Response(content=twiml, media_type="text/xml")
-
-
-@app.post("/api/webhooks/twilio/transfer-twiml")
-async def twilio_transfer_twiml(request: Request, to: str):
-    """転送用TwiML（応答後転送モード用）"""
-    from app.services.carrier.twilio_client import build_transfer_twiml
-    twiml = build_transfer_twiml(to, settings.webhook_base_url)
-    return Response(content=twiml, media_type="text/xml")
 
 
 # ─── WebSocket ────────────────────────────────────────────

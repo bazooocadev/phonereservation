@@ -5,10 +5,10 @@ from app.config import get_settings
 import logging
 
 logger = logging.getLogger(__name__)
-settings = get_settings()
 
 
 def get_twilio_client() -> Client:
+    settings = get_settings()
     return Client(settings.twilio_account_sid, settings.twilio_auth_token)
 
 
