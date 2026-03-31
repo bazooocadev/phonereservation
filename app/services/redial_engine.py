@@ -64,6 +64,7 @@ class RedialEngine:
         self._active_calls: Dict[str, ActiveCall] = {}
         self._operator_calls: Dict[int, str] = {}
         self._batches: Dict[str, CallBatch] = {}
+        self._pre_ended_calls: set[str] = set()  # 登録前に終了済みの call_sid
 
     async def _sync_settings(self):
         """DBからシステム設定を読み込みエンジンに反映する"""
@@ -118,6 +119,7 @@ class RedialEngine:
                 logger.warning("Hangup timed out during stop, proceeding anyway")
         self._active_calls.clear()
         self._batches.clear()
+        self._pre_ended_calls.clear()
 
         # 担当者を空き状態に戻す
         for op_id in list(self._operator_calls.keys()):
@@ -185,9 +187,12 @@ class RedialEngine:
                         except asyncio.TimeoutError:
                             pass
 
-                # 全回線のダイアル試行完了を記録し、残りのバッチ完了を待機
+                # 全回線のダイアル試行完了を記録
+                # ※ここでは _check_batch_all_failed を呼ばない。
+                # create_task した _make_single_call はまだ実行されていないため
+                # call_sids が空に見えて done_event が早期にセットされるのを防ぐ。
+                # done_event は _make_single_call / on_call_ended 側でセットする。
                 batch.all_dialed = True
-                await self._check_batch_all_failed(batch.batch_id)
 
                 if not batch.done_event.is_set():
                     try:
@@ -280,6 +285,14 @@ class RedialEngine:
                 # エンジン停止済みなら即ハングアップして終了
                 if not self.is_running:
                     asyncio.create_task(self._do_hangup(call_sid, line.carrier))
+                    return
+
+                # webhook が先着していた場合はハングアップして終了（batch に登録しない）
+                if call_sid in self._pre_ended_calls:
+                    self._pre_ended_calls.discard(call_sid)
+                    asyncio.create_task(self._do_hangup(call_sid, line.carrier))
+                    if batch_id:
+                        await self._check_batch_all_failed(batch_id)
                     return
 
                 # _active_calls を先に登録（ringing コールバックとの競合を防ぐ）
@@ -504,6 +517,8 @@ class RedialEngine:
         """通話終了時のクリーンアップ"""
         ac = self._active_calls.pop(call_sid, None)
         if not ac:
+            # _make_single_call の登録より webhook が先に来た場合に備えて記録しておく
+            self._pre_ended_calls.add(call_sid)
             return
 
         # バッチの完了判定
@@ -514,9 +529,9 @@ class RedialEngine:
                 if batch.connected and call_sid == batch.connected_call_sid:
                     # 接続していた通話が終了 → 次のサイクルへ
                     batch.call_ended_event.set()
-                elif not batch.connected and not batch.call_sids:
-                    # 全通話終了かつ未接続 → リダイアルへ
-                    batch.done_event.set()
+                elif not batch.connected:
+                    # all_dialed かつ call_sids が空になった時点で done_event をセット
+                    await self._check_batch_all_failed(ac.batch_id)
 
         # 担当者を空き状態に戻す
         for op_id, sid in list(self._operator_calls.items()):
