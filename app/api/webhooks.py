@@ -169,13 +169,13 @@ async def twilio_transfer_callback(request: Request, db: AsyncSession = Depends(
 @router.post("/twilio/operator-callback")
 async def twilio_operator_callback(request: Request, db: AsyncSession = Depends(get_db)):
     """コンファレンスモードでの担当者側（スマホ）のステータスコールバック"""
+    import asyncio
     form = await request.form()
     call_sid = form.get("CallSid", "")
     call_status = form.get("CallStatus", "")
-    
+
     logger.info(f"Operator callback: SID={call_sid} Status={call_status}")
-    
-    # 担当者側が応答失敗・ハングアップした場合、担当者を空きに戻す
+
     if call_status in ("completed", "failed", "busy", "no-answer", "canceled"):
         result = await db.execute(select(CallLog).where(CallLog.operator_call_sid == call_sid))
         log = result.scalar_one_or_none()
@@ -184,7 +184,14 @@ async def twilio_operator_callback(request: Request, db: AsyncSession = Depends(
             if op:
                 op.is_available = True
                 await db.commit()
-    
+
+        # 担当者が応答しなかった場合（no-answer/busy/failed/canceled）、
+        # 宛先側の通話もハングアップして保留音のまま放置されるのを防ぐ
+        if call_status in ("failed", "busy", "no-answer", "canceled") and log and log.call_sid:
+            logger.info(f"Operator did not answer ({call_status}), hanging up destination call {log.call_sid}")
+            from app.services.carrier.twilio_client import hangup_call
+            await asyncio.get_event_loop().run_in_executor(None, hangup_call, log.call_sid)
+
     return Response(content="", media_type="text/xml")
 
 

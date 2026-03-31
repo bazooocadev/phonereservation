@@ -252,6 +252,15 @@
 
     <!-- Logs Page -->
     <div id="page-logs" class="page">
+      <!-- 転送なし接続中回線 -->
+      <div class="panel" id="activeCallsPanel" style="margin-bottom:24px">
+        <div class="panel-header">
+          <h2>転送されていない接続中回線</h2>
+          <button id="btnHangupAll" class="btn btn-sm" style="background:rgba(255,77,109,0.15);color:var(--danger);border:none" onclick="hangupAllCalls(this)">未転送の回線切断</button>
+        </div>
+        <div id="activeCallsList" class="panel-body"></div>
+      </div>
+
       <div class="page-header">
         <h1>通話ログ</h1>
         <div class="log-filters">

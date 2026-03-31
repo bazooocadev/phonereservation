@@ -103,9 +103,19 @@ class RedialEngine:
         await asyncio.gather(*self._tasks, return_exceptions=True)
         self._tasks.clear()
 
-        # アクティブな通話をすべてハングアップ（停止後も電話がかかり続けるのを防ぐ）
-        for call_sid, ac in list(self._active_calls.items()):
-            asyncio.create_task(self._do_hangup(call_sid, ac.carrier))
+        # アクティブな通話をすべてハングアップ（5秒タイムアウト付き）
+        if self._active_calls:
+            hangup_coros = [
+                self._do_hangup(call_sid, ac.carrier)
+                for call_sid, ac in self._active_calls.items()
+            ]
+            try:
+                await asyncio.wait_for(
+                    asyncio.gather(*hangup_coros, return_exceptions=True),
+                    timeout=5.0,
+                )
+            except asyncio.TimeoutError:
+                logger.warning("Hangup timed out during stop, proceeding anyway")
         self._active_calls.clear()
         self._batches.clear()
 
@@ -202,7 +212,10 @@ class RedialEngine:
 
             # 全失敗時のみリダイアル間隔を挟む（接続時はすぐ次へ）
             if self.is_running and (batch is None or not batch.connected):
-                await asyncio.sleep(self.dial_interval_sec)
+                try:
+                    await asyncio.sleep(self.dial_interval_sec)
+                except asyncio.CancelledError:
+                    break
 
     async def _make_single_call(self, dest: Destination, line: CarrierLine, batch_id: str = ""):
         """1件の発信を行いバッチに登録する"""

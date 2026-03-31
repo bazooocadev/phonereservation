@@ -9,27 +9,36 @@ let reconnectTimer = null;
 
 // ─── Init ─────────────────────────────────────────────────
 window.addEventListener('DOMContentLoaded', () => {
-  showPage('dashboard');
+  const savedPage = localStorage.getItem('currentPage') || 'dashboard';
+  showPage(savedPage);
   connectWS();
   refreshDashboard();
   refreshCarrierCapacity();
   loadDialInterval();
   setInterval(refreshDashboard, 10000);
   setInterval(refreshCarrierCapacity, 30000);
+  setInterval(() => {
+    if (document.getElementById('page-logs').classList.contains('active')) {
+      loadActiveCalls();
+    }
+  }, 10000);
 });
 
 // ─── Page Navigation ──────────────────────────────────────
 function showPage(name) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.nav-item, .bottom-nav-item').forEach(n => n.classList.remove('active'));
-  document.getElementById(`page-${name}`).classList.add('active');
+  const pageEl = document.getElementById(`page-${name}`);
+  if (!pageEl) return;
+  pageEl.classList.add('active');
   document.querySelectorAll(`[data-page="${name}"]`).forEach(el => el.classList.add('active'));
+  localStorage.setItem('currentPage', name);
 
   if (name === 'dashboard') { refreshDashboard(); refreshCarrierCapacity(); }
   if (name === 'destinations') loadDestinations();
   if (name === 'lines') loadLines();
   if (name === 'operators') loadOperators();
-  if (name === 'logs') loadLogs();
+  if (name === 'logs') { loadActiveCalls(); loadLogs(); }
 }
 
 // ─── WebSocket ────────────────────────────────────────────
@@ -99,6 +108,14 @@ function handleWsEvent(data) {
 
   // 最大100件
   while (feed.children.length > 100) feed.lastChild.remove();
+
+  // 通話イベントで接続中回線パネルとログを自動更新
+  if (['call_started', 'call_ended', 'call_transferred', 'call_update'].includes(data.type)) {
+    loadActiveCalls();
+    if (document.getElementById('page-logs').classList.contains('active')) {
+      loadLogs();
+    }
+  }
 }
 
 function updateActiveCalls(delta) {
@@ -111,6 +128,48 @@ function updateActiveCalls(delta) {
 
 function clearLiveFeed() {
   document.getElementById('liveFeed').innerHTML = '';
+}
+
+// ─── Active Calls ─────────────────────────────────────────
+async function loadActiveCalls() {
+  const panel = document.getElementById('activeCallsPanel');
+  const list  = document.getElementById('activeCallsList');
+
+  const connected = await api('GET', '/api/call-logs?result=connected&active_only=true&limit=50');
+  // 転送されずに接続先と繋がったままの回線だけ対象
+  const active = (connected || []).filter(l => !l.transfer_to);
+
+  if (active.length === 0) {
+    list.innerHTML = '<div style="padding:12px 20px;color:var(--text-muted);font-size:13px">未転送の接続中回線はありません</div>';
+    return;
+  }
+
+  list.innerHTML = active.map(l => {
+    const calledAt = l.called_at ? new Date(l.called_at).toLocaleTimeString('ja-JP') : '—';
+    const statusColor = l.result === 'connected' ? 'var(--success)' : 'var(--primary)';
+    const statusLabel = l.result === 'connected' ? '接続済み' : '発信中';
+    return `
+      <div class="status-item">
+        <div style="flex:1">
+          <div class="status-item-name">${l.to_number || '—'}</div>
+          <div class="status-item-info">${calledAt} / ${l.carrier || '—'} / ${l.from_number || '—'}${l.transfer_to ? ' → ' + l.transfer_to : ''}</div>
+        </div>
+        <span class="badge" style="background:rgba(0,0,0,0.08);color:${statusColor}">${statusLabel}</span>
+      </div>`;
+  }).join('');
+  // IDリストをボタンに持たせる
+  document.getElementById('btnHangupAll').dataset.ids = active.map(l => l.id).join(',');
+}
+
+async function hangupAllCalls(btn) {
+  if (!confirm(`接続中の全回線（${btn.dataset.ids.split(',').length}件）を切断しますか？`)) return;
+  btn.disabled = true;
+  btn.textContent = '切断中...';
+  const ids = btn.dataset.ids.split(',').filter(Boolean);
+  await Promise.all(ids.map(id => api('POST', `/api/call-logs/${id}/hangup`)));
+  await loadActiveCalls();
+  btn.disabled = false;
+  btn.textContent = '未転送の回線切断';
 }
 
 // ─── Dashboard ────────────────────────────────────────────
@@ -250,9 +309,14 @@ async function saveDialInterval() {
 
 async function toggleEngine() {
   const btn = document.getElementById('btnEngine');
+  if (btn.disabled) return;
   const running = btn.classList.contains('running');
+  btn.disabled = true;
+  document.getElementById('btnEngineIcon').textContent = '⏳';
+  document.getElementById('btnEngineLabel').textContent = running ? '停止中...' : '起動中...';
   await api('POST', running ? '/api/dashboard/stop' : '/api/dashboard/start');
   await refreshDashboard();
+  btn.disabled = false;
 }
 
 // ─── Destinations ─────────────────────────────────────────
@@ -487,11 +551,11 @@ async function loadLogs() {
       congested: 'badge-warning',
       failed: 'badge-danger',
       'no-answer': 'badge-muted',
-      calling: 'badge-primary',
+      calling: 'badge-danger',
     };
     const labels = {
       connected: '接続', busy: '話中', congested: '混雑',
-      failed: '失敗', 'no-answer': '不応答', calling: '発信中',
+      failed: '失敗', 'no-answer': '不応答', calling: '切断',
     };
     return `<span class="badge ${map[r] || 'badge-muted'}">${labels[r] || r || '—'}</span>`;
   };
