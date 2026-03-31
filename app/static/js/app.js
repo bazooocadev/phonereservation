@@ -133,14 +133,20 @@ async function refreshDashboard() {
   const btn = document.getElementById('btnEngine');
   const icon = document.getElementById('btnEngineIcon');
   const label = document.getElementById('btnEngineLabel');
+  const statusEl = document.getElementById('engineStatus');
+  const statusLabel = document.getElementById('engineStatusLabel');
   if (data.engine_running) {
     btn.classList.add('running');
     icon.textContent = '⏹';
-    label.textContent = '停止';
+    label.textContent = '発信停止';
+    statusEl.className = 'engine-status engine-status-running';
+    statusLabel.textContent = '発信中';
   } else {
     btn.classList.remove('running');
     icon.textContent = '▶';
     label.textContent = '発信開始';
+    statusEl.className = 'engine-status engine-status-stopped';
+    statusLabel.textContent = '停止中';
   }
 
   // Destinations status

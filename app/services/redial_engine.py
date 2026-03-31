@@ -202,7 +202,7 @@ class RedialEngine:
 
             # 全失敗時のみリダイアル間隔を挟む（接続時はすぐ次へ）
             if self.is_running and (batch is None or not batch.connected):
-                await asyncio.sleep(settings.redial_interval_sec)
+                await asyncio.sleep(self.dial_interval_sec)
 
     async def _make_single_call(self, dest: Destination, line: CarrierLine, batch_id: str = ""):
         """1件の発信を行いバッチに登録する"""

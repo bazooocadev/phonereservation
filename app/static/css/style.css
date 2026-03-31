@@ -159,8 +159,46 @@ body {
 /* ─── Engine Toggle Button ───────────────────────────── */
 .engine-btn-wrap {
   display: flex;
-  justify-content: center;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
   margin-bottom: 24px;
+}
+
+.engine-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 16px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: .4px;
+}
+.engine-status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+.engine-status-running {
+  background: rgba(0, 200, 83, 0.12);
+  color: var(--success);
+}
+.engine-status-running .engine-status-dot {
+  background: var(--success);
+  box-shadow: 0 0 0 3px rgba(0,200,83,0.3);
+  animation: pulse-dot 1.5s infinite;
+}
+.engine-status-stopped {
+  background: rgba(150, 150, 170, 0.12);
+  color: var(--text-muted);
+}
+.engine-status-stopped .engine-status-dot {
+  background: var(--text-muted);
+}
+@keyframes pulse-dot {
+  0%, 100% { box-shadow: 0 0 0 3px rgba(0,200,83,0.3); }
+  50%       { box-shadow: 0 0 0 6px rgba(0,200,83,0.1); }
 }
 
 .btn-engine {
