@@ -47,6 +47,13 @@ async def twilio_twiml_conference(request: Request):
     return Response(content=xml, media_type="text/xml")
 
 
+@router.api_route("/twilio/twiml/silence", methods=["GET", "POST"])
+async def twilio_twiml_silence():
+    """コンファレンス待機中の無音TwiML（宛先側の待機音なし）"""
+    xml = '<Response><Pause length="3600"/></Response>'
+    return Response(content=xml, media_type="text/xml")
+
+
 @router.api_route("/twilio/transfer-twiml", methods=["GET", "POST"])
 async def twilio_transfer_twiml(request: Request):
     """応答後転送モード用TwiML（担当者スマホへのDial）"""

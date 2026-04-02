@@ -131,16 +131,20 @@ def build_gather_twiml(webhook_base_url: str) -> str:
 def build_conference_twiml(conference_name: str, wait_for_operator: bool) -> str:
     """
     コンファレンス参加用TwiMLを生成。
-    wait_for_operator=True  → 宛先側: 応答した瞬間にコンファレンス開始
-    wait_for_operator=False → 担当者側: コンファレンス開始まで待機音を聞く
+    wait_for_operator=True  → 宛先側: 担当者が来るまで保留音を聞いて待機
+    wait_for_operator=False → 担当者側: 応答した瞬間にコンファレンス開始
     """
     response = VoiceResponse()
     dial = Dial()
     conf_kwargs = dict(
-        start_conference_on_enter=wait_for_operator,
-        end_conference_on_exit=True,
+        # 担当者(wait_for_operator=False)が応答した瞬間にコンファレンス開始
+        # 宛先(wait_for_operator=True)は開始まで保留音を聞いて待つ
+        start_conference_on_enter=not wait_for_operator,
+        # 宛先側が退出したらコンファレンス終了
+        # 担当者側が退出しても終了しない（未応答時に英語アナウンスが流れるのを防ぐ）
+        end_conference_on_exit=wait_for_operator,
         muted=False,
-        wait_url="https://com.twilio.music.classical.s3.amazonaws.com/ClockworkWaltz.mp3",
+        wait_url=f"{get_settings().webhook_base_url}/api/webhooks/twilio/twiml/silence",
         wait_method="GET",
     )
     conf = Conference(conference_name, **conf_kwargs)

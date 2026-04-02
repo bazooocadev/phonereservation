@@ -203,7 +203,7 @@ body {
 
 .engine-btns {
   display: flex;
-  gap: 24px;
+  gap: 60px;
   align-items: center;
 }
 
