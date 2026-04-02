@@ -27,7 +27,7 @@ def make_call(from_number: str, to_number: str, webhook_base_url: str) -> str:
         status_callback=f"{webhook_base_url}/api/webhooks/twilio",
         status_callback_method="POST",
         status_callback_event=["completed", "failed", "busy", "no-answer"],
-        timeout=30,
+        timeout=5,
     )
     logger.info(f"Twilio call created: SID={call.sid} from={from_number} to={to_number}")
     return call.sid
@@ -54,7 +54,7 @@ def make_call_conference(
         status_callback=f"{webhook_base_url}/api/webhooks/twilio",
         status_callback_method="POST",
         status_callback_event=["ringing", "answered", "completed", "failed", "busy", "no-answer"],
-        timeout=30,
+        timeout=5,
     )
     logger.info(f"Twilio conference call: SID={call.sid} room={conference_name} to={to_number}")
     return call.sid
@@ -80,7 +80,7 @@ def call_operator_to_conference(
         status_callback=f"{webhook_base_url}/api/webhooks/twilio/operator-callback",
         status_callback_method="POST",
         status_callback_event=["answered", "completed", "failed", "no-answer"],
-        timeout=30,
+        timeout=5,
     )
     logger.info(f"Twilio operator call: SID={call.sid} room={conference_name} to={operator_number}")
     return call.sid
@@ -118,7 +118,8 @@ def build_gather_twiml(webhook_base_url: str) -> str:
     gather = Gather(
         input="speech",
         language="ja-JP",
-        timeout=5,
+        timeout=1,
+        speech_timeout="8",
         action=f"{webhook_base_url}/api/webhooks/twilio",
         method="POST",
     )
@@ -130,21 +131,18 @@ def build_gather_twiml(webhook_base_url: str) -> str:
 def build_conference_twiml(conference_name: str, wait_for_operator: bool) -> str:
     """
     コンファレンス参加用TwiMLを生成。
-    wait_for_operator=True  → 宛先側: スマホが来るまで待機音
-    wait_for_operator=False → スマホ側: すぐコンファレンスへ入る
+    wait_for_operator=True  → 宛先側: 応答した瞬間にコンファレンス開始
+    wait_for_operator=False → 担当者側: コンファレンス開始まで待機音を聞く
     """
     response = VoiceResponse()
     dial = Dial()
     conf_kwargs = dict(
-        start_conference_on_enter=not wait_for_operator,
+        start_conference_on_enter=wait_for_operator,
         end_conference_on_exit=True,
         muted=False,
+        wait_url="https://com.twilio.music.classical.s3.amazonaws.com/ClockworkWaltz.mp3",
+        wait_method="GET",
     )
-    # 担当者側はwaitUrl不要（入室と同時にコンファレンス開始）
-    # 空文字を渡すとTwilioがURLフェッチ失敗するため、宛先側のみ設定する
-    if wait_for_operator:
-        conf_kwargs["wait_url"] = "https://com.twilio.music.classical.s3.amazonaws.com/ClockworkWaltz.mp3"
-        conf_kwargs["wait_method"] = "GET"
     conf = Conference(conference_name, **conf_kwargs)
     dial.append(conf)
     response.append(dial)
@@ -157,7 +155,7 @@ def build_transfer_twiml(to_number: str, webhook_base_url: str) -> str:
     dial = Dial(
         action=f"{webhook_base_url}/api/webhooks/twilio/transfer",
         method="POST",
-        timeout=30,
+        timeout=5,
         record="record-from-start",
     )
     dial.number(to_number)

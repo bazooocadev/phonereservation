@@ -85,10 +85,16 @@
           <span id="engineStatusDot" class="engine-status-dot"></span>
           <span id="engineStatusLabel">停止中</span>
         </div>
-        <button id="btnEngine" class="btn-engine" onclick="toggleEngine()">
-          <span id="btnEngineIcon">▶</span>
-          <span id="btnEngineLabel">発信開始</span>
-        </button>
+        <div class="engine-btns">
+          <button id="btnStart" class="btn-engine btn-engine-start" onclick="startEngine()">
+            <span>▶</span>
+            <span>発信開始</span>
+          </button>
+          <button id="btnStop" class="btn-engine btn-engine-stop" onclick="stopEngine()">
+            <span>⏹</span>
+            <span>発信停止</span>
+          </button>
+        </div>
       </div>
 
       <!-- Stats Cards -->
@@ -242,7 +248,7 @@
         <div class="table-wrap">
           <table class="table" id="opTable">
             <thead>
-              <tr><th>ID</th><th>名前</th><th>電話番号</th><th>優先度</th><th>空き状態</th><th>操作</th></tr>
+              <tr><th>ID</th><th>名前</th><th>電話番号</th><th>優先度</th><th>有効</th><th>空き状態</th><th>操作</th></tr>
             </thead>
             <tbody></tbody>
           </table>

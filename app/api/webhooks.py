@@ -16,7 +16,7 @@ settings = get_settings()
 # NTT混雑アナウンス判断キーワード（一部）
 CONGESTION_KEYWORDS = [
     "混雑", "ただいま電話が大変込み合っております", "こみあって",
-    "お繋ぎできません", "おつなぎ", "お待ちください"
+    "お繋ぎできません", "おつなぎ", "お待ちください", "NTT", 
 ]
 
 
@@ -81,12 +81,13 @@ async def twilio_status_callback(request: Request, db: AsyncSession = Depends(ge
 
     elif is_congested:
         # 混雑アナウンス検知 → 通話を切って再発信キューへ
-        logger.info(f"Congestion detected for {call_sid}")
+        logger.info(f"[混雑検知] SID={call_sid} 音声='{speech_result}'")
         result_label = "congested"
         await redial_engine.on_call_ended(call_sid, "congested")
 
     elif speech_result and not is_congested:
         # 音声取得完了・混雑なし → 通話確立とみなして担当者へ転送
+        logger.info(f"[接続判定] SID={call_sid} 音声='{speech_result}'")
         result_label = "connected"
         await redial_engine.on_call_answered(call_sid)
 

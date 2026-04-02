@@ -38,6 +38,7 @@ class CallBatch:
         self.done_event = asyncio.Event()       # 接続確定 or 全失敗
         self.call_ended_event = asyncio.Event() # 接続した通話が終了
         self.all_dialed = False                 # 全回線のダイアル試行が完了したか
+        self.pending_calls = 0                  # まだ完了していない _make_single_call タスク数
 
 
 class ActiveCall:
@@ -176,6 +177,7 @@ class RedialEngine:
                 for i, line in enumerate(lines):
                     if not self.is_running or batch.connected or batch.done_event.is_set():
                         break
+                    batch.pending_calls += 1
                     asyncio.create_task(self._make_single_call(dest, line, batch_id))
                     # 最後の回線以外は interval 秒待機（その間に接続すればループを抜ける）
                     if i < len(lines) - 1:
@@ -188,17 +190,18 @@ class RedialEngine:
                             pass
 
                 # 全回線のダイアル試行完了を記録
-                # ※ここでは _check_batch_all_failed を呼ばない。
-                # create_task した _make_single_call はまだ実行されていないため
-                # call_sids が空に見えて done_event が早期にセットされるのを防ぐ。
-                # done_event は _make_single_call / on_call_ended 側でセットする。
                 batch.all_dialed = True
+                # 全通話がすでに終了していれば done_event をセット
+                await self._check_batch_all_failed(batch_id)
 
                 if not batch.done_event.is_set():
                     try:
-                        await asyncio.wait_for(batch.done_event.wait(), timeout=60)
+                        await asyncio.wait_for(batch.done_event.wait(), timeout=10)
                     except asyncio.TimeoutError:
-                        logger.warning(f"Batch {batch_id} timed out for dest {dest_id}")
+                        logger.warning(
+                            f"Batch {batch_id} timed out for dest {dest_id} "
+                            f"(pending={batch.pending_calls}, call_sids={batch.call_sids})"
+                        )
 
                 if batch.connected:
                     # 接続した通話が終了するまで待機してから次のサイクルへ
@@ -291,22 +294,22 @@ class RedialEngine:
                 if call_sid in self._pre_ended_calls:
                     self._pre_ended_calls.discard(call_sid)
                     asyncio.create_task(self._do_hangup(call_sid, line.carrier))
-                    if batch_id:
-                        await self._check_batch_all_failed(batch_id)
                     return
 
-                # _active_calls を先に登録（ringing コールバックとの競合を防ぐ）
+                # バッチ → _active_calls の順に登録する
+                # （逆にすると on_call_ended が先に来て call_sids.discard が空振りし、
+                #   後から add された call_sid が残り続けて done_event がセットされない）
+                if batch_id:
+                    batch = self._batches.get(batch_id)
+                    if batch:
+                        batch.call_sids.add(call_sid)
+
                 self._active_calls[call_sid] = ActiveCall(
                     call_sid, line.carrier, dest.id, log_id,
                     is_conference, conference_name,
                     from_number=line.from_number,
                     batch_id=batch_id,
                 )
-                # バッチに登録
-                if batch_id:
-                    batch = self._batches.get(batch_id)
-                    if batch:
-                        batch.call_sids.add(call_sid)
 
                 # call_sid を DB に保存
                 async with AsyncSessionLocal() as db:
@@ -331,8 +334,12 @@ class RedialEngine:
                     log_upd.result = "failed"
                     log_upd.ended_at = datetime.now(timezone.utc)
                     await db.commit()
-            # 発信失敗もバッチの完了判定に含める
+        finally:
+            # タスク完了をカウントし、全タスク完了ならバッチ完了判定
             if batch_id:
+                batch = self._batches.get(batch_id)
+                if batch:
+                    batch.pending_calls -= 1
                 await self._check_batch_all_failed(batch_id)
 
     async def _on_batch_connected(self, call_sid: str):
@@ -365,15 +372,14 @@ class RedialEngine:
         batch = self._batches.get(batch_id)
         if not batch or batch.connected or batch.done_event.is_set():
             return
-        # 全回線のダイアル試行完了 かつ call_sids が空（全通話終了）になったらリダイアルへ
-        # all_dialed が False の間は、まだ未ダイアルの回線が残っているので待機
-        if batch.all_dialed and not batch.call_sids:
+        # 全回線のダイアル試行完了 かつ 実行中タスクなし かつ call_sids が空なら完了
+        if batch.all_dialed and batch.pending_calls <= 0 and not batch.call_sids:
             batch.done_event.set()
 
     async def on_call_ringing(self, call_sid: str):
         """
         宛先呼び出し音(ringing)検知時（コンファレンスモード専用）。
-        バッチの他回線をキャンセルし、担当者をコンファレンスへ招待する。
+        バッチの他回線をキャンセルするのみ。担当者転送は on_call_answered で行う。
         """
         ac = self._active_calls.get(call_sid)
         if not ac or not ac.is_conference:
@@ -381,75 +387,6 @@ class RedialEngine:
 
         # 最初にringingになった回線でバッチを確定（他をキャンセル）
         await self._on_batch_connected(call_sid)
-
-        async with AsyncSessionLocal() as db:
-            result = await db.execute(
-                select(Operator)
-                .where(Operator.is_active == True)
-                .where(Operator.is_available == True)
-                .order_by(Operator.priority)
-                .limit(1)
-                .with_for_update(skip_locked=True)
-            )
-            operator = result.scalar_one_or_none()
-
-            if not operator:
-                logger.warning(f"No available operator for ringing call {call_sid}.")
-                return
-
-            operator.is_available = False
-            log = await db.get(CallLog, ac.log_id)
-            if log:
-                log.operator_id = operator.id
-                log.transfer_to = operator.phone_number
-            await db.commit()
-
-        loop = asyncio.get_event_loop()
-        # run_in_executor の前に登録しておく（webhook との競合を防ぐ）
-        self._operator_calls[operator.id] = call_sid
-        try:
-            from app.services.carrier import twilio_client
-            from_number = ac.from_number
-            if not from_number:
-                logger.error("from_number not found for conference call")
-                self._operator_calls.pop(operator.id, None)
-                async with AsyncSessionLocal() as db:
-                    op = await db.get(Operator, operator.id)
-                    if op:
-                        op.is_available = True
-                        await db.commit()
-                return
-
-            op_call_sid = await loop.run_in_executor(
-                None,
-                twilio_client.call_operator_to_conference,
-                from_number,
-                operator.phone_number,
-                ac.conference_name,
-                settings.webhook_base_url,
-            )
-
-            async with AsyncSessionLocal() as db:
-                log_upd = await db.get(CallLog, ac.log_id)
-                if log_upd:
-                    log_upd.operator_call_sid = op_call_sid
-                    await db.commit()
-
-            await websocket_manager.broadcast({
-                "type": "call_transferred",
-                "call_sid": call_sid,
-                "operator_name": operator.name,
-                "note": "ringing_mode",
-            })
-
-        except Exception as e:
-            logger.error(f"Conference operator call failed: {e}")
-            self._operator_calls.pop(operator.id, None)
-            async with AsyncSessionLocal() as db:
-                op = await db.get(Operator, operator.id)
-                if op:
-                    op.is_available = True
-                    await db.commit()
 
     async def on_call_answered(self, call_sid: str):
         """
@@ -460,13 +397,81 @@ class RedialEngine:
             return
 
         if ac.is_conference:
-            # コンファレンスモードは on_call_ringing で処理済み（ログ時刻のみ更新）
+            # コンファレンスモード: 宛先が応答したので担当者をコンファレンスへ招待
             async with AsyncSessionLocal() as db:
                 log = await db.get(CallLog, ac.log_id)
                 if log:
                     log.result = "connected"
                     log.connected_at = datetime.now(timezone.utc)
                     await db.commit()
+
+            async with AsyncSessionLocal() as db:
+                result = await db.execute(
+                    select(Operator)
+                    .where(Operator.is_active == True)
+                    .where(Operator.is_available == True)
+                    .order_by(Operator.priority)
+                    .limit(1)
+                    .with_for_update(skip_locked=True)
+                )
+                operator = result.scalar_one_or_none()
+
+                if not operator:
+                    logger.warning(f"No available operator for answered conference call {call_sid}.")
+                    return
+
+                operator.is_available = False
+                log = await db.get(CallLog, ac.log_id)
+                if log:
+                    log.operator_id = operator.id
+                    log.transfer_to = operator.phone_number
+                await db.commit()
+
+            loop = asyncio.get_event_loop()
+            self._operator_calls[operator.id] = call_sid
+            try:
+                from app.services.carrier import twilio_client
+                from_number = ac.from_number
+                if not from_number:
+                    logger.error("from_number not found for conference call")
+                    self._operator_calls.pop(operator.id, None)
+                    async with AsyncSessionLocal() as db:
+                        op = await db.get(Operator, operator.id)
+                        if op:
+                            op.is_available = True
+                            await db.commit()
+                    return
+
+                op_call_sid = await loop.run_in_executor(
+                    None,
+                    twilio_client.call_operator_to_conference,
+                    from_number,
+                    operator.phone_number,
+                    ac.conference_name,
+                    settings.webhook_base_url,
+                )
+
+                async with AsyncSessionLocal() as db:
+                    log_upd = await db.get(CallLog, ac.log_id)
+                    if log_upd:
+                        log_upd.operator_call_sid = op_call_sid
+                        await db.commit()
+
+                await websocket_manager.broadcast({
+                    "type": "call_transferred",
+                    "call_sid": call_sid,
+                    "operator_name": operator.name,
+                    "note": "conference_mode",
+                })
+
+            except Exception as e:
+                logger.error(f"Conference operator call failed: {e}")
+                self._operator_calls.pop(operator.id, None)
+                async with AsyncSessionLocal() as db:
+                    op = await db.get(Operator, operator.id)
+                    if op:
+                        op.is_available = True
+                        await db.commit()
             return
 
         # 通常モード: バッチの他回線をキャンセル
@@ -556,6 +561,11 @@ class RedialEngine:
                     if op:
                         op.is_available = True
                         await db.commit()
+                    # 宛先が失敗終了した場合（正常通話終了ではない）は担当者通話もハングアップ
+                    if result not in ("connected", "cancelled") and ac:
+                        log = await db.get(CallLog, ac.log_id)
+                        if log and log.operator_call_sid:
+                            await self._do_hangup(log.operator_call_sid, ac.carrier)
                 break
 
         await websocket_manager.broadcast({

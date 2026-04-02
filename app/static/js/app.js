@@ -189,21 +189,18 @@ async function refreshDashboard() {
   document.getElementById('activePulse').className =
     `stat-pulse ${data.active_calls > 0 ? 'active' : ''}`;
 
-  const btn = document.getElementById('btnEngine');
-  const icon = document.getElementById('btnEngineIcon');
-  const label = document.getElementById('btnEngineLabel');
+  const btnStart = document.getElementById('btnStart');
+  const btnStop = document.getElementById('btnStop');
   const statusEl = document.getElementById('engineStatus');
   const statusLabel = document.getElementById('engineStatusLabel');
   if (data.engine_running) {
-    btn.classList.add('running');
-    icon.textContent = '⏹';
-    label.textContent = '発信停止';
+    btnStart.classList.add('btn-engine-active');
+    btnStop.classList.remove('btn-engine-active');
     statusEl.className = 'engine-status engine-status-running';
     statusLabel.textContent = '発信中';
   } else {
-    btn.classList.remove('running');
-    icon.textContent = '▶';
-    label.textContent = '発信開始';
+    btnStart.classList.remove('btn-engine-active');
+    btnStop.classList.add('btn-engine-active');
     statusEl.className = 'engine-status engine-status-stopped';
     statusLabel.textContent = '停止中';
   }
@@ -307,16 +304,14 @@ async function saveDialInterval() {
   }
 }
 
-async function toggleEngine() {
-  const btn = document.getElementById('btnEngine');
-  if (btn.disabled) return;
-  const running = btn.classList.contains('running');
-  btn.disabled = true;
-  document.getElementById('btnEngineIcon').textContent = '⏳';
-  document.getElementById('btnEngineLabel').textContent = running ? '停止中...' : '起動中...';
-  await api('POST', running ? '/api/dashboard/stop' : '/api/dashboard/start');
+async function startEngine() {
+  await api('POST', '/api/dashboard/start');
   await refreshDashboard();
-  btn.disabled = false;
+}
+
+async function stopEngine() {
+  await api('POST', '/api/dashboard/stop');
+  await refreshDashboard();
 }
 
 // ─── Destinations ─────────────────────────────────────────
@@ -470,6 +465,7 @@ async function loadOperators() {
       <td>${o.name}</td>
       <td>${o.phone_number}</td>
       <td>${o.priority}</td>
+      <td><span class="badge ${o.is_active ? 'badge-success' : 'badge-muted'}">${o.is_active ? '有効' : '無効'}</span></td>
       <td><span class="badge ${o.is_available ? 'badge-success' : 'badge-warning'}">${o.is_available ? '空き' : '通話中'}</span></td>
       <td>
         <button class="btn btn-ghost btn-sm" onclick="editOp(${o.id})">編集</button>
@@ -477,7 +473,7 @@ async function loadOperators() {
         <button class="btn btn-sm" style="background:rgba(255,77,109,0.15);color:var(--danger);border:none;" onclick="deleteOp(${o.id})">削除</button>
       </td>
     </tr>
-  `).join('') || `<tr><td colspan="6" style="text-align:center;color:var(--text-muted);padding:24px">データなし</td></tr>`;
+  `).join('') || `<tr><td colspan="7" style="text-align:center;color:var(--text-muted);padding:24px">データなし</td></tr>`;
 }
 
 function openOpModal() {
